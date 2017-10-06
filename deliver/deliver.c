@@ -27,6 +27,8 @@ socklen_t addr_len;
 char FileName[100];
 struct addrinfo hints, *myServer;
 
+
+
 char FileBuff[1024*1024];
 
  if (argc != 3) {
@@ -34,6 +36,7 @@ char FileBuff[1024*1024];
  return 1;
  }
 
+// SOCKET TO TRANSFER FILE
 memset(&hints, 0, sizeof hints);
 hints.ai_family = AF_UNSPEC; 
 hints.ai_socktype = SOCK_DGRAM;
@@ -42,16 +45,57 @@ getaddrinfo(argv[1], argv[2], &hints, &myServer);
 
 sockfd = socket(myServer->ai_family, myServer->ai_socktype, myServer->ai_protocol);
 
-printf("%s\n","ftp");
+printf("%s: ","ftp");
 scanf("%s", FileName);
 
 FILE *fp = fopen(FileName, "r");
 
+// open another socket to listen ACK from server
+struct addrinfo hints2,*myHost, *p;
+int ACKfd;
+
+memset(&hints2, 0, sizeof hints2);
+hints2.ai_family = AF_UNSPEC; 
+hints2.ai_socktype = SOCK_DGRAM;
+hints2.ai_flags = AI_PASSIVE; 
+
+int NewPort;
+sscanf(argv[2], "%d", &NewPort);
+NewPort += 1;
+char temp[sizeof(int)];
+sprintf(temp,"%d",NewPort);
+
+getaddrinfo(NULL, temp, &hints2, &myHost);
+
+
+	for(p = myHost; p!= NULL; p = p -> ai_next){
+
+		if ((ACKfd= socket(myHost-> ai_family, myHost->ai_socktype, myHost->ai_protocol)) == -1){
+			
+			close(ACKfd);
+	 		perror("listener: bind");
+	 		continue;
+
+		}
+
+		//printf("%d\n", sockfd);
+		if(bind(ACKfd, myHost->ai_addr, myHost->ai_addrlen) == -1){
+			
+			close(ACKfd);
+	 		perror("listener: bind");
+	 		continue;
+
+		}
+
+		printf("%d\n", ACKfd);
+		break;
+	}
 
 //printf("%s\n",FileName );
 char* msg = "ftp";
 
 if(fp){
+
 	fseek(fp, 0L, SEEK_END);
 	long int sz = ftell(fp);
 	rewind(fp);
@@ -82,22 +126,23 @@ if(fp){
 		memcpy(SentPacket+packetheaderlen,FileBuff+(pck*1000),size);
 		//SentPacket[packetheaderlen+size] = '\0';
 		numbytes = sendto(sockfd, SentPacket, sizeof(SentPacket), 0, myServer->ai_addr, myServer->ai_addrlen);
-		numbytes = recvfrom(sockfd, buf, MAXBUFLEN-1, 0,(struct sockaddr *)&their_addr, &addr_len);
+		numbytes = recvfrom(ACKfd, buf, MAXBUFLEN-1, 0,(struct sockaddr *)&their_addr, &addr_len);
 
-		while (strcmp(buf, "yes")){	
-			numbytes = recvfrom(sockfd, buf, MAXBUFLEN-1, 0,(struct sockaddr *)&their_addr, &addr_len);
+		while (strcmp(buf, "ACK")){	
+			// not ACK
+			numbytes = recvfrom(ACKfd, buf, MAXBUFLEN-1, 0,(struct sockaddr *)&their_addr, &addr_len);
 
 	 	}
 	}
 
- 	
+ 	fclose(fp);
 
 }
 
 
 freeaddrinfo(myServer);
-fclose(fp);
 close(sockfd);
+close(ACKfd);
 return 0;
 
 

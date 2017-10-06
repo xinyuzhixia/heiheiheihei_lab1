@@ -21,7 +21,7 @@ int main(int argc, char *argv[] )
 	int sockfd;
 	char buf[MAXBUFLEN];
 	int numberbytes;
-	struct sockaddr_storage their_addr;
+	struct sockaddr_in their_addr;
 	socklen_t addr_len;
 
 	struct addrinfo hints, *myHost, *p;
@@ -32,12 +32,17 @@ int main(int argc, char *argv[] )
 	 //return 1;
 	 //}
 
+	// Open SOCKET to transfer file
 	memset(&hints, 0, sizeof hints);
 	hints.ai_family = AF_UNSPEC; 
 	hints.ai_socktype = SOCK_DGRAM;
 	hints.ai_flags = AI_PASSIVE; 
 	 
 	getaddrinfo(NULL, argv[1], &hints, &myHost);
+	//struct sockaddr_in *clientaddr = (struct sockaddr_in*)&myHost->ai_addr;
+	//unsigned char *ip = (unsigned char *)&clientaddr->sin_addr.s_addr;
+	//printf ("server: %d %d %d %d \n",ip[0], ip[1], ip[2], ip[3]);
+			
 
 	for(p = myHost; p!= NULL; p = p -> ai_next){
 
@@ -61,9 +66,16 @@ int main(int argc, char *argv[] )
 		printf("%d\n", sockfd);
 		break;
 	}
+	// get the socket info that opened by the deliver
+	struct addrinfo hints2, *myClient;
+	int ACKfd;
+	memset(&hints2, 0, sizeof hints2);
+	hints2.ai_family = AF_UNSPEC; 
+	hints2.ai_socktype = SOCK_DGRAM;
+	hints2.ai_flags = AI_PASSIVE; 
 
-	char* msg1= "yes";
-	char* msg2= "NO";
+	char* msg1= "ACK";
+	char* msg2= "NACK";
 	addr_len = sizeof their_addr;
 	int LastUpdatedNumber = -1;
 	int EXtractFileName = 0;
@@ -74,10 +86,29 @@ int main(int argc, char *argv[] )
 	char *start = NULL;
 	char *Namestart = NULL;
 	FILE *fp = NULL;
+	int OpenSocket = 0;
+
 
 	do {
 
 		numberbytes = recvfrom(sockfd, buf, MAXBUFLEN-1, 0,(struct sockaddr *)&their_addr, &addr_len);
+
+		if (OpenSocket == 0){
+
+
+			
+			int NewPort;
+			sscanf(argv[1], "%d", &NewPort);
+			NewPort += 1;
+			char temp[sizeof(int)];
+			sprintf(temp,"%d",NewPort);
+
+			getaddrinfo(inet_ntoa(their_addr.sin_addr), temp, &hints2, &myClient);
+			ACKfd = socket(myClient->ai_family, myClient->ai_socktype, myClient->ai_protocol);
+			OpenSocket = 1;
+
+		}
+
 		buf[numberbytes] = '\0';
 		
 		if (EXtractFileName == 0){
@@ -144,7 +175,7 @@ int main(int argc, char *argv[] )
 			// the packet is correct
 				LastUpdatedNumber++;
 				fwrite(filedata,1,size,fp);
-				numberbytes = sendto(sockfd, msg1, strlen(msg1), 0, (struct sockaddr *)&their_addr, addr_len);
+				numberbytes = sendto(ACKfd, msg1, strlen(msg1), 0, myClient->ai_addr, myClient->ai_addrlen);
 				
 				if (frag_no == total_frag-1)
 					break;
@@ -152,7 +183,7 @@ int main(int argc, char *argv[] )
 
 		else 
 		{	// the packet is wrong
-				numberbytes = sendto(sockfd, msg2, strlen(msg2), 0, (struct sockaddr *)&their_addr, addr_len);
+				numberbytes = sendto(ACKfd, msg2, strlen(msg2), 0, myClient->ai_addr, myClient->ai_addrlen);
 
 		}
 	
@@ -166,6 +197,7 @@ int main(int argc, char *argv[] )
 	freeaddrinfo(myHost);
 	fclose(fp);
 	close(sockfd);
+	close(ACKfd);
 	return 0;
 
 }
